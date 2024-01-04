@@ -2,7 +2,6 @@ from scapy.all import *
 import socket
 from multiprocessing import Process
 from multiprocessing.connection import Listener, Client # we will use this to exange data easly between the different processes
-from threading import Thread
 
 localhost = "127.0.0.1"
 
@@ -138,29 +137,9 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
         self.width = os.get_terminal_size().columns
         self.height = os.get_terminal_size().lines
         self.data = {"analyzer": {}, "mitm": {}} # we will store the data in this dictionary
-        self.drawerT = Thread(target=self.drawer)
-
-    def drawer(self):
-        drawtimer = time.time() # if the timer is more than 1 sec, we draw the table
-        oldwidth = self.width
-        oldheight = self.height
-        while True:
-            self.width = os.get_terminal_size().columns
-            self.height = os.get_terminal_size().lines
-            if self.width != oldwidth or self.height != oldheight:
-                self.draw()
-                oldwidth = self.width
-                oldheight = self.height
-
-            if time.time() - drawtimer > 1:
-                self.draw()
-                drawtimer = time.time()
-
-            time.sleep(0.001)
     def main_loop(self):
         listener = Listener(address=(localhost, 9658), authkey=b'secret')
         print("listening for connections")
-        self.drawerT.start()
         while True:
             conn = listener.accept()
             print("connected")
@@ -184,7 +163,8 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
                                 print("error while parsing data")
                 except EOFError:
                     break
-            time.sleep(0.5)
+            time.sleep(1)
+            self.draw()
     def draw_interface(self):
         # we draw the interface decoration up
         os.system("clear")
@@ -213,56 +193,24 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
         if len(data["mitm"]) == 0 and len(data["analyzer"]) == 0:
             print("No data to display")
             return
-        imagebuffer = [] # each lines will be in this list
         # we draw the targets table
-        # print("+" + "-" * (self.width - 2) + "+")
+        print("+" + "-" * (self.width - 2) + "+")
         # for every line drawn, we have to check the lenght of the line to draw it correctly
         # we draw the title
-        #title = "targets"
-        #print("|" + title + " " * (self.width - len(title) - 3) + "|")
-        #print("+" + "-" * (self.width - 2) + "+")
+        title = "targets"
+        print("|" + title + " " * (self.width - len(title) - 3) + "|")
+        print("+" + "-" * (self.width - 2) + "+")
         # we draw the table header
-        #print("|" + "IP Address" + " " * (self.width //4) + "|" + "MAC Address" + " " * (self.width //4) + "|" + "Status" + " " * (self.width //4) + "|")
-        #print("+" + "-" * (self.width - 2) + "+")
-        # using the image buffer :
-        imagebuffer.append("+" + "-" * (self.width - 2) + "+")
-        imagebuffer.append("|" + "targets" + " " * (self.width - len("targets") - 3) + "|")
-        imagebuffer.append("+" + "-" * (self.width - 2) + "+")
-        imagebuffer.append("|" + "IP Address" + " " * (self.width //4) + "|" + "MAC Address" + " " * (self.width //4) + "|" + "Status" + " " * (self.width //4) + "|")
-        imagebuffer.append("+" + "-" * (self.width - 2) + "+")
-
+        print("|" + "IP Address" + " " * (self.width //4) + "|" + "MAC Address" + " " * (self.width //4) + "|" + "Status" + " " * (self.width //4) + "|")
+        print("+" + "-" * (self.width - 2) + "+")
         # we draw the table content
         for ip in data["mitm"]:
             # TypeError: list indices must be integers or slices, not str
             # to not get this error, we have to use integer to navitage in the list
             try:
-                # first, we calculate the total data lengh to add the correct number of spaces
-
-                # old : print("|" + ip[0] + " " * (self.width //4) + ip[1] + " " * (self.width //4) + " " * (self.width //4) + "|")
-                datatocheck = ip[0] + ip[1]
-                # we have to check if the data is not too long
-                if len(datatocheck) > self.width - 2:
-                    # we have to cut the data
-                    datatocheck = datatocheck[:self.width - 2]
-                # we calculate the number of spaces to add
-                spaces = self.width - 2 - len(datatocheck)
-                # we have to add spaces between ip and mac and at the end
-                spaces = spaces // 3
-                # we add the spaces
-                imagebuffer.append("|" + ip[0] + " " * spaces + ip[1] + " " * spaces + " " * spaces + "|")
-
-
+                print("|" + ip[0] + " " * (self.width //4) + ip[1] + " " * (self.width //4) + " " * (self.width //4) + "|")
             except Exception:
                 print("error")
-        # we draw the table footer
-        #print("+" + "-" * (self.width - 2) + "+")
-        imagebuffer.append("+" + "-" * (self.width - 2) + "+")
-        # we draw the analyzer table
-        # just skipping for now
-
-        # we print the image buffer
-        for i in imagebuffer:
-            print(i)
 
 
 
