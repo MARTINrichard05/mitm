@@ -17,7 +17,6 @@ class SmartAnalyzer:
         self.timer = time.time()
         self.key = key
         self.data = {}
-        self.total_bandwith = {}
 
 
     def start(self, interface):
@@ -98,26 +97,23 @@ class SmartAnalyzer:
                     hosts.append(host)
             data["analysis"][ip]["hcount"] = len(hosts)
 
-
-
+        data["total bandwith"] = {}
         for pkt in self.workingBuffer["pakets"]:
             if pkt[IP].src != self.IPAddr and pkt[IP].dst != self.IPAddr:
                 if self.is_private(pkt[IP].src):
-                    if pkt[IP].src not in self.total_bandwith:
-                        self.total_bandwith[pkt[IP].src] = pkt.len/1000
+                    if pkt[IP].src not in data["total bandwith"]:
+                        data["total bandwith"][pkt[IP].src] = pkt.len/1000
                     else:
-                        self.total_bandwith[pkt[IP].src] += pkt.len/1000
+                        data["total bandwith"][pkt[IP].src] += pkt.len/1000
                 elif self.is_private(pkt[IP].dst):
-                    if pkt[IP].dst not in self.total_bandwith:
-                        self.total_bandwith[pkt[IP].dst] = pkt.len/1000
+                    if pkt[IP].dst not in data["total bandwith"]:
+                        data["total bandwith"][pkt[IP].dst] = pkt.len/1000
                     else:
-                        self.total_bandwith[pkt[IP].dst] += pkt.len/1000
-
-        self.workingBuffer["pakets"] = []
+                        data["total bandwith"][pkt[IP].dst] += pkt.len/1000
 
         # we have to calculate the total bandwith for each ip
-        #for ip in self.total_bandwith:
-        #    self.total_bandwith[ip] = str(self.total_bandwith[ip]) + " kilobytes"
+        for ip in data["total bandwith"]:
+            data["total bandwith"][ip] = str(data["total bandwith"][ip]) + " kilobytes"
 
 
         self.data = data
@@ -128,7 +124,7 @@ class SmartAnalyzer:
                 conn = Client(address=(localhost, 9658), authkey=b'secret')
 
                 conn.send({"type": "analyzer", "data": data["analysis"]})
-                conn.send({"type": "total bandwidth", "data": self.total_bandwith})
+                conn.send({"type": "total bandwidth", "data": data["total bandwith"]})
 
                 conn.close()
 
@@ -280,7 +276,7 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
                 statuslenght = len(str(i))
 
         if len("Data amount") > statuslenght:
-            statuslenght = len("Data amount (kb)")
+            statuslenght = len("Data amount")
 
         totallenght = iplenght + macaddrlenght + statuslenght + 3
 
@@ -293,10 +289,10 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
         # we draw the table header but we have to calculate the number of spaces to add to respect each collumn lengh defined before
         ipspace = iplenght - len("IP Address")
         macaddrspace = macaddrlenght - len("MAC Address")
-        dataspace = statuslenght - len("Data amount (kb)")
+        dataspace = statuslenght - len("Data amount")
 
         # we add the spaces
-        imagebuffer.append("|" + "IP Address" + " " * ipspace + "|" + "MAC Address" + " " * macaddrspace + "|" + "Data amount (kb)" + " " * dataspace + "|")
+        imagebuffer.append("|" + "IP Address" + " " * ipspace + "|" + "MAC Address" + " " * macaddrspace + "|" + "Data amount" + " " * dataspace + "|")
         imagebuffer.append("+" + "-" * (self.width - 2) + "+")
 
 
@@ -525,11 +521,14 @@ class MITMAttack:
 
         print("\n[*] Disabling IP Forwarding...")
         os.system("echo 0 > /proc/sys/net/ipv4/ip_forward")
-
+        if self.scannerT is not None:
+            print("[*] Stopping sniffer thread...")
+            self.scannerT.kill()
+        if self.drawP is not None:
+            print("[*] Stopping drawer thread...")
+            self.drawP.kill()
 
         print("[*] Shutting Down...")
-        os.system("killall python")
-        os.system("killall python3")
         sys.exit(1)
 
     def trick(self):
