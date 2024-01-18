@@ -584,6 +584,13 @@ class MITMAttack:
 
 def print_usage():
     print('Usage: python main.py -i <interface> -t "<target_ip1> <target_ip2> ..."')
+    print('Example for "smart automatic" mode:  python main.py -i {your interface} -s')
+    print(' ')
+    print('-s : enable packet analyser (include data amount)')
+    print('-a : specify your ip address (if something doesnt work)')
+    print('-i : specify interface')
+    print('-t : specify target ip(s), if not specified, automatic mode will be used')
+
 def main(argv):
     smart = None
     slave = False
