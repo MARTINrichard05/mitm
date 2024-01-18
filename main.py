@@ -1,7 +1,7 @@
 from scapy.all import *
 import socket
 from multiprocessing import Process
-from multiprocessing.connection import Listener, Client # we will use this to exange data easly between the different processes
+from multiprocessing.connection import Listener, Client # pour échanger des données entre les processus
 from threading import Thread
 
 
@@ -14,18 +14,14 @@ class SmartAnalyzer:
         self.capture = None
         self.workingBuffer = {"pakets": []}
         self.IPAddr = myip
-        # we have to init a timer to print the table every 5 sec
         self.timer = time.time()
         self.key = key
         self.data = {}
 
 
     def start(self, interface):
-        print("starting analyzer")
         self.capture = AsyncSniffer(iface=interface, prn=self.add)
         self.capture.start()
-        print("started analyzer")
-        # whe have to send the data to the drawer process every 1 sec
         while True:
             try:
                 time.sleep(1)
@@ -46,23 +42,16 @@ class SmartAnalyzer:
             self.capture.join()
         except KeyboardInterrupt:
             self.capture.stop()
-        print("stoped analyzer")
+        print("stopped analyzer")
 
     def add(self,pkt):
-        # it just add the packet to the working buffer
         if pkt.haslayer(IP):
             if pkt[IP].src != self.IPAddr and pkt[IP].dst != self.IPAddr:
                 self.workingBuffer["pakets"].append(pkt)
         else:
             pass
 
-
-
-
     def analyze(self):
-
-        # if more than 1 source send packets in the last 5 seconds, we check if they are sending to the same destination
-        # first we do a ip map in a dictionary
         ip_map = {}
         for pkt in self.workingBuffer["pakets"]:
             if pkt[IP].dst not in ip_map:
@@ -70,9 +59,8 @@ class SmartAnalyzer:
             if pkt[IP].src not in ip_map[pkt[IP].dst]:
                 ip_map[pkt[IP].dst].append(pkt[IP].src)
 
-        # then we check if there is more than 1 source sending packets to the same destination
         suspicious_ips = []
-        other_ips = [] # if there is at least 1 host sending packets to a dest , we add it to this list
+        other_ips = []
 
         for ip in ip_map:
             if len(ip_map[ip]) > 1:
@@ -80,14 +68,9 @@ class SmartAnalyzer:
             else:
                 other_ips.append(ip)
 
-        # we have to count each different ip that accessed a dest ip
-
-
-
-        # we check each suspicious ip to see if it is a private ip, if it is, we print a warning message, if not we do a reverse dns lookup to see if it is a known site
-        # to represent all the data["analysis"] in a readable way, we use a dictionary and we will draw a table with it
         data = {}
         data["analysis"] = {}
+
         for ip in suspicious_ips:
             if self.is_private(ip):
                 data["analysis"][ip] = {"type": "Private","Suspicious": True, "hosts": ip_map[ip], "count": len(ip_map[ip]), "name": "none"}
@@ -96,6 +79,7 @@ class SmartAnalyzer:
                     data["analysis"][ip] = {"type": "Public", "Suspicious": True, "hosts": ip_map[ip], "count": len(ip_map[ip]), "name": socket.gethostbyaddr(ip)[0]}
                 except Exception:
                     data["analysis"][ip] = {"type": "Public", "Suspicious": True, "hosts": ip_map[ip], "count": len(ip_map[ip]), "name": "Unknown"}
+
         for ip in other_ips:
             if self.is_private(ip):
                 data["analysis"][ip] = {"type": "Private", "Suspicious": False, "hosts": ip_map[ip], "count": len(ip_map[ip]), "name": "none"}
@@ -113,18 +97,12 @@ class SmartAnalyzer:
                     hosts.append(host)
             data["analysis"][ip]["hcount"] = len(hosts)
 
-        # we have to calculate the total bandwith used for each local ip (we do not count the ip of the machine running the script)
-        # if a source ip is in my local net and it is not my ip, we add the size of the packet to the total bandwith
-        # and this for each packet but we have to calculate total bandwith for each local ip
         data["total bandwith"] = {}
         for pkt in self.workingBuffer["pakets"]:
             if pkt[IP].src != self.IPAddr and pkt[IP].dst != self.IPAddr:
                 if self.is_private(pkt[IP].src):
                     if pkt[IP].src not in data["total bandwith"]:
                         data["total bandwith"][pkt[IP].src] = pkt.len/1000
-
-
-
                     else:
                         data["total bandwith"][pkt[IP].src] += pkt.len/1000
                 elif self.is_private(pkt[IP].dst):
@@ -132,6 +110,7 @@ class SmartAnalyzer:
                         data["total bandwith"][pkt[IP].dst] = pkt.len/1000
                     else:
                         data["total bandwith"][pkt[IP].dst] += pkt.len/1000
+
         # we have to calculate the total bandwith for each ip
         for ip in data["total bandwith"]:
             data["total bandwith"][ip] = str(data["total bandwith"][ip]) + " kilobytes"
@@ -140,14 +119,15 @@ class SmartAnalyzer:
         self.data = data
 
     def send_data(self, data):
-        # we send the data to the drawer process using a multiprocessing connection
-        # we use a key to make sure that the data is not corrupted
         while True:
             try:
                 conn = Client(address=(localhost, 9658), authkey=b'secret')
+
                 conn.send({"type": "analyzer", "data": data["analysis"]})
-                conn.send({"type": "total bandwith", "data": data["total bandwith"]})
+                conn.send({"type": "total bandwidth", "data": data["total bandwith"]})
+
                 conn.close()
+
                 break
             except :
                 time.sleep(0.1)
@@ -158,10 +138,13 @@ class SmartAnalyzer:
     def get_status(self, hostname):
         if hostname == "Unknown":
             return "Unknown"
+
         elif hostname == "Private IP":
             return "Private IP"
+
         elif hostname == self.IPAddr:
             return "Your IP"
+
         else:
             return "---"
 
@@ -172,9 +155,11 @@ class SmartAnalyzer:
         ip = ip.split(".")
         if ip[0] == "10":
             return True
+
         elif ip[0] == "172":
             if 16 <= int(ip[1]) <= 31:
                 return True
+
         elif ip[0] == "192" and ip[1] == "168":
             return True
         return False
@@ -182,20 +167,24 @@ class SmartAnalyzer:
 
 
 
-class Drawer:  # this class will be used to draw everything in the terminal in a clean way, we have to check the terminal size to draw the table correctly
+class Drawer:  # this class will be used to draw everything in the terminal in a clean way
     def __init__(self):
         self.width = os.get_terminal_size().columns
         self.height = os.get_terminal_size().lines
+
         self.data = {"analyzer": {}, "mitm": {}, "total bandwith": {}} # we will store the data in this dictionary
+
         self.drawerT = Thread(target=self.drawer)
 
     def drawer(self):
-        drawtimer = time.time() # if the timer is more than 1 sec, we draw the table
+        drawtimer = time.time()
         oldwidth = self.width
         oldheight = self.height
+
         while True:
             self.width = os.get_terminal_size().columns
             self.height = os.get_terminal_size().lines
+
             if self.width != oldwidth or self.height != oldheight:
                 self.draw()
                 oldwidth = self.width
@@ -208,78 +197,64 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
             time.sleep(0.001)
     def main_loop(self):
         listener = Listener(address=(localhost, 9658), authkey=b'secret')
+
         print("listening for connections")
         self.drawerT.start()
+
         while True:
             conn = listener.accept()
-            print("connected")
+
             while True:
                 try:
                     while conn.poll():
                         recv = conn.recv()
+
                         if recv is not None:
+
                             try:
                                 match recv["type"]:
+
                                     case "analyzer":
                                         print("received data from analyzer")
                                         self.data["analyzer"] = recv["data"]
-                                    case "total bandwith":
-                                        print("received data from analyzer")
-                                        self.data["total bandwith"] = recv["data"]
+                                    case "total bandwidth":
+                                        print("received bandwidth from analyzer")
+                                        self.data["total bandwidth"] = recv["data"]
                                     case "mitm":
                                         print("received data from mitm")
                                         self.data["mitm"] = recv["data"]
-
                                     case _:
                                         print("got unknown data")
+
                             except Exception:
                                 print("error while parsing data")
+
                 except EOFError:
                     break
             time.sleep(0.5)
     def draw_interface(self):
-        # we draw the interface decoration up
-        os.system("clear")
-        print("+" + "-" * (self.width - 2) + "+")
         # we draw the table with the data
         self.draw_table(self.data)
-        # we draw the interface decoration down
-        print("+" + "-" * (self.width - 2) + "+")
+
     def draw_table(self, data):
-        # we draw the table, on the left we have the mitm data and on the right we have the analyzer data
-        # we have to check if the data is not empty
-        # it should look like this:
-        # +------------------------------------------------------------+
-        # | targets                                                  |
-        # +------------------------------------------------------------+
-        # | IP Address     | MAC Address     | Status                   |
-        # | xxx.xxx.xxx.xxx| xx:xx:xx:xx:xx:xx| xxxxxxxxxxxxxxxxxxxxxxxx|
-        # | xxx.xxx.xxx.xx | xx:xx:xx:xx:xx:xx| xxxxxxxxxxxxxxxxxxxxxxxx|
-        # +------------------------------------------------------------+
-        # |
-        # +------------------------------------------------------------+
-        # | analyzer                                                 |
-        # +------------------------------------------------------------+
-        # | Dest ip | | hostname |nb of requests(total)| nb of host that accessed it   |
-        # +------------------------------------------------------------+
         if len(data["mitm"]) == 0 and len(data["analyzer"]) == 0:
             print("No data to display")
             return
+
         if len(data["total bandwith"]) == 0:
             data["total bandwith"] = {"No data to display": "No data to display"}
-        imagebuffer = [] # each lines will be in this list
-        # we draw the targets table like the analyzer table
 
+        imagebuffer = []
 
-        # we draw the title
-        imagebuffer.append("|" + "targets" + " " * (self.width - len("targets") - 3) + "|")
         imagebuffer.append("+" + "=" * (self.width - 2) + "+")
+        imagebuffer.append("|" + "targets" + " " * (self.width - len("targets") - 3) + "|")
+        imagebuffer.append("+" + "-" * (self.width - 2) + "+")
 
-        # we prepare all the collumn lengh for the next step
         iplenght = 0
         for i in data["mitm"]:
             if len(i[0]) > iplenght:
                 iplenght = len(i)
+
         # do not forget the title
         if len("IP Address") > iplenght:
             iplenght = len("IP Address")
@@ -288,8 +263,10 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
         for i in data["mitm"]:
             if i[1] is None:
                 iplenght = 4
+
             elif len(i[1]) > iplenght:
                 iplenght = len(i)
+
         if len("MAC Address") > macaddrlenght:
             macaddrlenght = len("MAC Address")
 
@@ -297,12 +274,12 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
         for i in data["total bandwith"]:
             if len(str(i)) > statuslenght:
                 statuslenght = len(str(i))
+
         if len("Data amount") > statuslenght:
             statuslenght = len("Data amount")
 
-        # now, we just add blank spaces to collumn to make them "breathe" and adapt to screen size, for that, we calculate the total lenght of the table
         totallenght = iplenght + macaddrlenght + statuslenght + 3
-        # we calculate the number of spaces to add
+
         spaces = self.width - 2 - totallenght
         # we add the spaces
         iplenght += spaces // 4
@@ -313,6 +290,7 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
         ipspace = iplenght - len("IP Address")
         macaddrspace = macaddrlenght - len("MAC Address")
         dataspace = statuslenght - len("Data amount")
+
         # we add the spaces
         imagebuffer.append("|" + "IP Address" + " " * ipspace + "|" + "MAC Address" + " " * macaddrspace + "|" + "Data amount" + " " * dataspace + "|")
         imagebuffer.append("+" + "-" * (self.width - 2) + "+")
@@ -321,11 +299,12 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
         # we draw the table content
         for ip in data["mitm"]:
             try:
-                if ip[0] in data["total bandwith"]:
-                    total_bandwith = str(data["total bandwith"][str(ip[0])])
+                if ip[0] in data["total bandwidth"]:
+                    total_bandwith = str(data["total bandwidth"][str(ip[0])])
+
                 else:
                     total_bandwith = "?"
-                # we just have to calculate the number of spaces to add to respect each collumn lengh defined before
+
                 ipspace = iplenght - len(ip[0])
                 macaddrspace = macaddrlenght - len(ip[1])
                 dataspace = statuslenght - len(total_bandwith)
@@ -333,22 +312,21 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
                 # we add the spaces
 
                 imagebuffer.append("|" + ip[0] + " " * ipspace + "|" + ip[1] + " " * macaddrspace + "|" + total_bandwith + " " * dataspace + "|")
+
             except Exception as e:
                 imagebuffer.append(e)
 
-        # we draw the table decoration
-        imagebuffer.append("+" + "-" * (self.width - 2) + "+")
-        imagebuffer.append("|" + " " * (self.width - 2) + "|")
-        imagebuffer.append("+" + "-" * (self.width - 2) + "+")
-
-
+        imagebuffer.append("+" + "=" * (self.width - 2) + "+")
+        #imagebuffer.append(" " * (self.width - 2))
+        imagebuffer.append("\n")
+        imagebuffer.append("+" + "=" * (self.width - 2) + "+")
 
 
         # we draw the analyzer table
 
         # we draw the title
         imagebuffer.append("|" + "analyzer" + " " * (self.width - len("analyzer") - 3) + "|")
-        imagebuffer.append("+" + "=" * (self.width - 2) + "+")
+        imagebuffer.append("+" + "-" * (self.width - 2) + "+")
 
 
         # we prepare all the collumn lengh for the next step
@@ -384,9 +362,7 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
         if len("nb of host that accessed it") > hostscountlenght:
             hostscountlenght = len("nb of host that accessed it")
 
-        # now, we just add blank spaces to collumn to make them "breathe" and adapt to screen size, for that, we calculate the total lenght of the table
         totallenght = iplenght + hostnamelenght + requestslenght + hostscountlenght + 3
-        # we calculate the number of spaces to add
         spaces = self.width - 2 - totallenght
         # we add the spaces
         iplenght += spaces // 4
@@ -394,7 +370,6 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
         requestslenght += spaces // 4
         hostscountlenght += spaces // 4
 
-        # we draw the table header but we have to calculate the number of spaces to add to respect each collumn lengh defined before
         ipspace = iplenght - len("Dest ip")
         hostnamespace = hostnamelenght - len("hostname")
         requestsspace = requestslenght - len("nb of requests(total)")
@@ -416,31 +391,19 @@ class Drawer:  # this class will be used to draw everything in the terminal in a
                 imagebuffer.append("|" + ip + " " * ipspace + "|" + data["analyzer"][ip]["name"] + " " * hostnamespace + "|" + str(data["analyzer"][ip]["count"]) + " " * requestsspace + "|" + str(data["analyzer"][ip]["hcount"]) + " " * hostscountspace + "|")
                 imagebuffer.append(data["analyzer"][ip]["hosts"])
 
-
-
             except Exception:
                 imagebuffer.append("error")
 
-
+        imagebuffer.append("+" + "=" * (self.width - 2) + "+")
 
         # we print the image buffer
+        os.system("clear")
         for i in imagebuffer:
             print(i)
-
-
-
-
 
     def draw(self):
         # we draw everything
         self.draw_interface()
-
-
-
-
-
-
-
 
 class Netscanner:
     def __init__(self, interface):
@@ -454,11 +417,7 @@ class Netscanner:
 
     def sniffer_arp(self):
         print("[*] Starting scan...")
-        # IP Address for the destination
-        # create ARP packet
         arp = ARP(pdst=self.scanip)
-        # create the Ether broadcast packet
-        # ff:ff:ff:ff:ff:ff MAC address indicates broadcasting
         ether = Ether(dst="ff:ff:ff:ff:ff:ff")
         # stack them
         packet = ether / arp
@@ -515,7 +474,6 @@ class MITMAttack:
                         self.targets.append([ip, self.get_mac(ip)])
 
 
-            # we check if all the targets have a mac address
             for i in self.targets:
                 if i[1] is None: # if not, we try to get it
                     self.targets[self.targets.index(i)][1] = self.get_mac(i[0])
@@ -532,8 +490,6 @@ class MITMAttack:
             time.sleep(5)
 
     def send_data(self, data):
-        # we send the data to the drawer process using a multiprocessing connection
-        # we use a key to make sure that the data is not corrupted
         while True:
             try:
                 conn = Client(address=(localhost, 9658), authkey=b'secret')
@@ -629,6 +585,7 @@ def print_usage():
     print('Usage: python main.py -i <interface> -t "<target_ip1> <target_ip2> ..."')
 def main(argv):
     smart = None
+    slave = False
 
     interface = None
     target_ips = []
@@ -647,6 +604,7 @@ def main(argv):
         elif argv[i] == "-s":
             # smart mode
             smart = Process(target=SmartAnalyzer().start, args=(interface,))
+
     mode = "manual"
     if interface is None:
         print("Interface not specified")
@@ -666,8 +624,6 @@ def main(argv):
         smart.start()
 
     attack.mitm(mode)
-
-
 
 if __name__ == "__main__":
     #attack = MITMAttack()
