@@ -4,7 +4,7 @@ from multiprocessing import Process
 from multiprocessing.connection import Listener, Client # pour échanger des données entre les processus
 from threading import Thread
 
-
+# Richard et Corentin
 localhost = "127.0.0.1"
 subnet = None
 myip = socket.gethostbyname(socket.gethostname())
